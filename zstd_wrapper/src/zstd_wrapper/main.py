@@ -8,8 +8,8 @@ import tarfile
 import tempfile
 import zstandard
 
-def extract_zst(input_path, output_path, output_filetype='.txt', max_window_size=2147483648, stream_reader_size=16384):
-    
+def convert_zst(input_path, output_path, output_filetype='.txt', max_window_size=2147483648, stream_reader_size=16384):
+    # checks if input and output the directories exists
     if not os.path.exists(input_path):
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), input_path)
     if not os.path.isdir(output_path):
@@ -17,27 +17,33 @@ def extract_zst(input_path, output_path, output_filetype='.txt', max_window_size
     if not os.path.exists(output_path):
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), output_path)
     
+    # checks if zstandard and pandas is installed in user's environment
     if zstandard is None:
         raise ImportError("zstandard has not been installed")
     if pandas is None:
         raise ImportError("pandas has not been installed")
-            
+
+    # create the zstandard Decompressor  
     dctx = zstandard.ZstdDecompressor(max_window_size=max_window_size)
     
     full_output_path = os.path.join(output_path, os.path.basename(input_path) + '_decomp.txt')
     
-    with tempfile.TemporaryFile() as temp_output:
-        with open(input_path, "rb") as compressed_input:
-            stream_reader = dctx.stream_reader(compressed_input)
-            while True:
-                chunk = stream_reader.read(stream_reader_size)
-                if not chunk:
-                    break
-                temp_output.write(chunk)
-        temp_output.seek(0)
-        
+    # create a temporary file
+    try:
+        with tempfile.TemporaryFile() as temp_output:
+            with open(input_path, "rb") as compressed_input:
+                stream_reader = dctx.stream_reader(compressed_input)
+                while True:
+                    chunk = stream_reader.read(stream_reader_size)
+                    if not chunk:
+                        break
+                    temp_output.write(chunk)
+            temp_output.seek(0) # set the cursor back to 0
+    except Exception as e:
+        print(e)
+
         tarred_file_name = os.path.basename(input_path)[:-4]
-        
+        # zip the temporary file and write to the disc    
         if output_filetype=='zip':
             full_output_path = os.path.join(output_path, os.path.basename(input_path) + '_decomp.zip')
             print("f", full_output_path)
@@ -46,12 +52,10 @@ def extract_zst(input_path, output_path, output_filetype='.txt', max_window_size
             temp_output.close()
         
         if output_filetype=='tar':
-            temp_output.seek(0)
+            # temp_output.seek(0)
             byte_array = temp_output.read()
             
             full_output_path = os.path.join(output_path, os.path.basename(input_path) + '_decomp.tar.gz')
-            tarred_file_name = os.path.basename(input_path)[:-4]
-
             tarfile_info = tarfile.TarInfo(tarred_file_name)
             tarfile_info.size = len(byte_array)
 
@@ -78,6 +82,8 @@ def extract_zst(input_path, output_path, output_filetype='.txt', max_window_size
 
 
 def zst_to_dataframe(input_path, zst_content_type='json', max_window_size=2147483648):
+    
+    # create a generator to open ZST file
     def create_zstd_generator(input_path):
         dctx = zstandard.ZstdDecompressor(max_window_size=max_window_size)
         with (zstandard.open(input_path, "rb", dctx=dctx) as compressed_input, 
@@ -90,7 +96,8 @@ def zst_to_dataframe(input_path, zst_content_type='json', max_window_size=214748
     if zst_content_type=='json':
         for line in wrapper:
             lst.append(json.loads(line))
-    else:
+    
+    if zst_content_type is None:
         for line in wrapper:
             lst.append(line)
     df = pandas.DataFrame(lst)
